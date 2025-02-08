@@ -1,19 +1,25 @@
-# Changed step_frames to 2 for Isign and noise removed.
-
+# Uncomment bestisgnb4path if you want to load from the checkpoint.
 
 project_name = "CISLR_Pretraining"
-sub_project_name = "FPS2_MT_GN_RF_MixIsign_PT1"
-run_name = "FPS2_MT_GN_RF_MixIsign_PT1"
+sub_project_name = "NewMT_GN_RF_MixIsign_PT1"
+run_name = "NewMT_GN_RF_MixIsign_PT1"
 
 # Gausian Noise , Random frame sampling , Isign mixed with CISLR linearly
 
 randomize_word_order = False
 steps_for_100percentIsign = 60000
 import os
-# # Set the visible GPU devices
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
-
 import pandas as pd
+# # Set the visible GPU devices
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+
+
+train_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/train_MT_dedup.csv')
+eval_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/val_MT_dedup.csv')
+test_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/test_MT_dedup.csv')
+
+
 import re
 import numpy as np
 import torch
@@ -56,28 +62,32 @@ def set_seed(seed=42):
 set_seed()
 
 def get_threshold(current_step, total_steps):
-    return min(current_step / total_steps, 1.0)
+    if total_steps == 0:
+        return 1.1
+    else:
+        return min(current_step / total_steps, 0.9)
 
 #Hyperparameters here now 
-learning_rate = 1e-3 
-num_encoder_layers = 4
-num_decoder_layers = 4
+learning_rate = 3e-4 
+num_encoder_layers = 4 #6
+num_decoder_layers = 4 #6
 encoder_hidden_size = 512 #512
 decoder_hidden_size = 512 #512
 num_attention_heads = 8
 dropout = 0.1
 MAX_FRAMES = 300  # Max video frames.
 max_position_embeddings_encoder = MAX_FRAMES
-num_beams = 4
+num_beams = 3
 #label_smoothing = 0.1 not used yet
 warmup_steps_ratio = 0.1
-batch_size = 256 #64 #256
+batch_size = 16 #64 #256
 #gradient_accumulation_steps = 1 not used yet
 lr_scheduler_type = 'warmup_linear_constant_afterwards'
 num_epochs = 1
 max_length_decoder = 128
 vocab_size_decoder = 15000
 num_keypoints = 152 # We have cherrypicked these
+WEIGTH_DECAY = 0.01
 
 POSE_DIR = "/DATA7/vaibhav/tokenization/CISLR/CISLR_v1.5-a_videos_poses/"
 POSE_DIR_ISIGN = "/DATA7/vaibhav/isign/Data/iSign-poses_v1.1/"
@@ -117,25 +127,22 @@ hyperparameters = {'learning_rate': learning_rate,
 
 wandb.init(project=project_name, name=run_name, config = hyperparameters)
 
-#wandb.init(project=project_name, config = hyperparameters, id="d9vu0xp8", resume="must")
+#wandb.init(project=project_name, config = hyperparameters, id="c43wvsr1", resume="must")
 
 #wandb.init(project=project_name, config = hyperparameters, id="7ike4lk8", resume="must")
 
 
-train_df = pd.read_csv('/DATA3/vaibhav/isign/97CISLR/train.csv')
-eval_df = pd.read_csv('/DATA3/vaibhav/isign/97CISLR/val.csv')
-test_df = pd.read_csv('/DATA3/vaibhav/isign/97CISLR/test.csv')
-
 eval_df2 = pd.read_csv('/DATA7/vaibhav/tokenization/val_split_unicode_filtered.csv')
-'/DATACSEShare/sanjeet/Dataset/Sign_lanuguage_data_set/isign/Final_Processed_raw_sentences_isign.csv'
+#'/DATACSEShare/sanjeet/Dataset/Sign_lanuguage_data_set/isign/Final_Processed_raw_sentences_isign.csv'
 #train_df2 = pd.read_csv('/DATA7/vaibhav/tokenization/train_split_unicode_filtered.csv')
-train_df2 = pd.read_csv('isign_new = pd.read_csv("/DATACSEShare/sanjeet/Dataset/Sign_lanuguage_data_set/isign/Final_Processed_raw_sentences_isign.csv")')
-train_df2 = train_df2.rename(columns={'final_sentence_raw': 'text'})
+train_df2 = pd.read_csv("/DATA3/vaibhav/isign/PretrainingISL/isign_new.csv")
 # Step 2: Train Tokenizers
 # Combine source and target sequences for a joint tokenizer
 #all_sequences = train_df['SENTENCE_UNICIDE'].tolist() + train_df['text'].tolist()
-    
+
+
 all_sequences_target = train_df['text'].tolist() + train_df2['text'].tolist()
+#all_sequences_target = train_df['text'].values.tolist() + train_df2['text'].values.tolist()
 
 
 # Initialize and train the tokenizer
@@ -145,7 +152,7 @@ tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
 
 trainer = trainers.BpeTrainer(
     vocab_size=vocab_size_decoder,
-    special_tokens=["<s>", "<pad>", "</s>", "<unk>", "<mask>"]
+    special_tokens=["<s>", "<pad>", "</s>", "<unk>", "<mask>", "<ENGLISH>"]
 )
 
 tokenizer.train_from_iterator(all_sequences_target, trainer=trainer)
@@ -218,7 +225,7 @@ print('Creating datasets...')
 
 train_dataset = FeatureVectorDataset(train_video_uids,tokenizer_target,
                                       randomize_word_order, MAX_FRAMES, POSE_DIR,
-                                      train_labels, step_frames=STEP_FRAME, add_noise = ADD_NOISE_CISLR)
+                                      train_labels, step_frames=STEP_FRAMES, add_noise = ADD_NOISE_CISLR)
 test_dataset = FeatureVectorDataset(test_video_uids,tokenizer_target, 
                                     randomize_word_order, MAX_FRAMES, POSE_DIR,
                                     test_labels,step_frames=STEP_FRAMES, add_noise = ADD_NOISE_CISLR)
@@ -247,13 +254,13 @@ print('Creating DataLoaders...')
 #     prefetch_factor=2,  # Add prefetch
 #     persistent_workers=True  # Keep workers alive
 # )
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, prefetch_factor=2)
-eval_loader = DataLoader(eval_dataset, batch_size=batch_size, num_workers=4, pin_memory=True, prefetch_factor=2)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=4, pin_memory=True, prefetch_factor=2)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=32, pin_memory=True, prefetch_factor=2)
+eval_loader = DataLoader(eval_dataset, batch_size=batch_size, num_workers=32, pin_memory=True, prefetch_factor=2)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=32, pin_memory=True, prefetch_factor=2)
 
 
-isign_loader = DataLoader(train2_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-eval2_loader = DataLoader(eval2_dataset, batch_size=batch_size, num_workers=4, pin_memory=True, prefetch_factor=2)
+isign_loader = DataLoader(train2_dataset, batch_size=batch_size, shuffle=True, num_workers=32, pin_memory=True, prefetch_factor=2)
+eval2_loader = DataLoader(eval2_dataset, batch_size=batch_size, num_workers=32, pin_memory=True, prefetch_factor=2)
 
 
 isign_loader_cycle = cycle(isign_loader)  # To cycle through ISIGN when exhausted
@@ -270,6 +277,7 @@ encoder_config = BertConfig(
     hidden_dropout_prob=dropout,  # Dropout after fully connected layers
     attention_probs_dropout_prob=dropout,  # Dropout on attention weights
 )
+#encoder = BertForCausalLM(encoder_config)
 encoder = BertModel(encoder_config)
 print(encoder_config)
 
@@ -293,12 +301,18 @@ decoder = GPT2LMHeadModel(decoder_config)
 
 # Linear layer to project feature vectors to the expected input shape
 class FeatureProjection(torch.nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, hidden_dims = 1024):
         super(FeatureProjection, self).__init__()
-        self.linear = torch.nn.Linear(input_dim, output_dim)
+        # self.linear = torch.nn.Linear(input_dim, output_dim)
+        self.linear1 = torch.nn.Linear(input_dim, hidden_dims)
+        self.linear2 = torch.nn.Linear(hidden_dims, output_dim)
+        self.gelu = torch.nn.GELU()
 
     def forward(self, x):
-        return self.linear(x)
+        # return self.linear(x)
+        x = self.gelu(self.linear1(x))
+        x = self.linear2(x)
+        return x
 
 
 # Combine Encoder and Decoder into EncoderDecoderModel
@@ -375,7 +389,7 @@ feature_projection.to(device)
 
 optimizer = torch.optim.AdamW(
     list(model.parameters()) + list(feature_projection.parameters()),
-    weight_decay=1e-5,
+    weight_decay=WEIGTH_DECAY,
     lr=learning_rate
 )
 
@@ -395,11 +409,11 @@ scheduler = get_constant_schedule_with_warmup(
     #num_training_steps=total_steps  # Will maintain constant lr after warmup
 )
 
-wandb.watch(model, log="all", log_freq=100)
+#wandb.watch(model, log="all", log_freq=100)
 
 epoch_steps = 0
 # Load checkpoint or pretrained weights
-if os.path.exists(best_checkpoint_path_isignB4):
+if os.path.exists(""): #best_checkpoint_path_isignB4
     start_epoch, best_val_B4, best_val_loss, best_val_B4_isign, best_val_loss_isign, best_val_B1_isign, epoch_steps = load_checkpoint(
         model, feature_projection, optimizer, scheduler, best_checkpoint_path_isignB4
     )

@@ -1,4 +1,5 @@
 # Get the full dataset, save tokenizer.
+# Uncomment best_checkpoint_path_isignB4 in the load path if you want to load from checkpoint
 
 project_name = "CISLR_Pretraining"
 sub_project_name = "DO_MT_GN_RF_MixIsign_PT1"
@@ -7,9 +8,10 @@ run_name = "DO_MT_GN_RF_MixIsign_PT1"
 # Gausian Noise , Random frame sampling , Isign mixed with CISLR linearly
 
 randomize_word_order = False
+steps_for_100percentIsign = 60000
 import os
 # # Set the visible GPU devices
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 
 import pandas as pd
 import re
@@ -57,22 +59,19 @@ def set_seed(seed=42):
 set_seed()
 
 def get_threshold(current_step, total_steps):
-    return min(current_step / total_steps, 1.0)
+    return min(current_step / total_steps, 0.9)
 
 #Hyperparameters here now 
 learning_rate = 3e-4 #3e-4 #Slower learning rate for finetuning
-# num_encoder_layers = 4
-# num_decoder_layers = 4
-# encoder_hidden_size = 512 #512
-# decoder_hidden_size = 512 #512
-# num_attention_heads = 8
+hidden_size = 512
+num_heads = 8
+num_layers = 4
+num_beams = 3
 # dropout = 0.1
 MAX_FRAMES = 300  # Max video frames.
 max_position_embeddings_encoder = MAX_FRAMES
-# num_beams = 4
-#label_smoothing = 0.1 not used yet
 warmup_steps_ratio = 0.1
-batch_size = 64 #64 #256
+batch_size = 16 #64 #256
 #gradient_accumulation_steps = 1 not used yet
 lr_scheduler_type = 'warmup_linear_constant_afterwards'
 num_epochs = 1
@@ -84,27 +83,25 @@ POSE_DIR = "/DATA7/vaibhav/tokenization/CISLR/CISLR_v1.5-a_videos_poses/"
 POSE_DIR_ISIGN = "/DATA7/vaibhav/isign/Data/iSign-poses_v1.1/"
 
 
-hyperparameters = {'learning_rate': learning_rate, 
-                    #  'num_encoder_layers': num_encoder_layers,
-                    #     'num_decoder_layers': num_decoder_layers,
-                    #     'encoder_hidden_size': encoder_hidden_size,
-                    #     'decoder_hidden_size': decoder_hidden_size,
-                    #     'num_attention_heads': num_attention_heads,
-                    #     'dropout': dropout,
-                        'max_position_embeddings_encoder': max_position_embeddings_encoder,
-                        # 'num_beams': num_beams,
-                        'warmup_steps_ratio': warmup_steps_ratio,
-                        'batch_size': batch_size,
-                        'lr_scheduler_type': lr_scheduler_type,
-                        'num_epochs': num_epochs,
-                        'max_length_decoder': max_length_decoder,
-                        'Max_frames_videos': MAX_FRAMES,
-                        'vocab_size_decoder': vocab_size_decoder,
-                        'num_keypoints': num_keypoints,
-                        'POSE_DIR': POSE_DIR,
-                        'POSE_DIR_ISIGN': POSE_DIR_ISIGN,
-                        'randomize_word_order': randomize_word_order
-                        ,'sub_project_name': sub_project_name}
+hyperparameters = { 'learning_rate': learning_rate, 
+                    'hidden_size': hidden_size,
+                    'num_heads': num_heads,
+                    'num_layers': num_layers,
+                    'num_beams': num_beams,
+                    'steps_for_100percentIsign': steps_for_100percentIsign,
+                    'max_position_embeddings_encoder': max_position_embeddings_encoder,
+                    'warmup_steps_ratio': warmup_steps_ratio,
+                    'batch_size': batch_size,
+                    'lr_scheduler_type': lr_scheduler_type,
+                    'num_epochs': num_epochs,
+                    'max_length_decoder': max_length_decoder,
+                    'Max_frames_videos': MAX_FRAMES,
+                    'vocab_size_decoder': vocab_size_decoder,
+                    'num_keypoints': num_keypoints,
+                    'POSE_DIR': POSE_DIR,
+                    'POSE_DIR_ISIGN': POSE_DIR_ISIGN,
+                    'randomize_word_order': randomize_word_order
+                    ,'sub_project_name': sub_project_name}
 
 
 
@@ -116,18 +113,18 @@ wandb.init(project=project_name, name=run_name, config = hyperparameters)
 #wandb.init(project=project_name, config = hyperparameters, id="7ike4lk8", resume="must")
 
 
-train_df = pd.read_csv('/DATA3/vaibhav/isign/97CISLR/train.csv')
-eval_df = pd.read_csv('/DATA3/vaibhav/isign/97CISLR/val.csv')
-test_df = pd.read_csv('/DATA3/vaibhav/isign/97CISLR/test.csv')
+train_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/train_MT.csv')
+eval_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/val_MT.csv')
+test_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/test_MT.csv')
 
-train_df = train_df.sample(n=1000)
-eval_df = eval_df.sample(n=1000)
+# train_df = train_df.sample(n=1000)
+# eval_df = eval_df.sample(n=1000)
 
 eval_df2 = pd.read_csv('/DATA7/vaibhav/tokenization/val_split_unicode_filtered.csv')
-train_df2 = pd.read_csv('/DATA7/vaibhav/tokenization/train_split_unicode_filtered.csv')
+train_df2 = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/isign_new.csv')
 
-train_df2 = train_df2.sample(n=1000)
-eval_df2 = eval_df2.sample(n=1000)
+# train_df2 = train_df2.sample(n=1000)
+# eval_df2 = eval_df2.sample(n=1000)
 
 # Step 2: Train Tokenizers
 # Combine source and target sequences for a joint tokenizer
@@ -249,35 +246,6 @@ eval2_loader = DataLoader(eval2_dataset, batch_size=batch_size, num_workers=4, p
 isign_loader_cycle = cycle(isign_loader)  # To cycle through ISIGN when exhausted
 cislr_loader_cycle = cycle(train_loader)  # To cycle through CISLR when exhausted
 
-
-
-
-
-# class SignLanguageGPT(nn.Module):
-#     def __init__(self, gpt_model, pose_dim, hidden_size):
-#         super().__init__()
-#         self.gpt = gpt_model
-#         self.pose_projection = nn.Linear(pose_dim, hidden_size)
-        
-#     def forward(self, input_embeds, attention_mask, labels=None):
-#         # Project pose features
-#         pose_features = input_embeds[:, :self.max_pose_len]
-#         projected_pose = self.pose_projection(pose_features)
-        
-#         # Get text embeddings
-#         text_embeds = self.gpt.transformer.wte(input_ids)
-        
-#         # Combine embeddings
-#         combined_embeds = torch.cat([projected_pose, text_embeds], dim=1)
-        
-#         # GPT forward pass
-#         outputs = self.gpt(
-#             inputs_embeds=combined_embeds,
-#             attention_mask=attention_mask,
-#             labels=labels
-#         )
-#         return outputs
-
 class SignLanguageGPT(nn.Module):
     def __init__(self, gpt_model, pose_dim, hidden_size, max_pose_len=MAX_FRAMES):
         super().__init__()
@@ -343,13 +311,13 @@ max_sequence_length = (
 gpt_config = GPT2Config(
     vocab_size=len(tokenizer_target),
     n_positions=max_sequence_length,  # Set to total sequence length
-    n_layer=6,
-    n_head=12,
-    n_embd=768
+    n_layer=num_layers,
+    n_head=num_heads,
+    n_embd=hidden_size
 )
 
 gpt_model = GPT2LMHeadModel(gpt_config).to(device)
-model = SignLanguageGPT(gpt_model, pose_dim=num_keypoints, hidden_size=768).to(device)
+model = SignLanguageGPT(gpt_model, pose_dim=num_keypoints, hidden_size=hidden_size).to(device)
 
 def generate_from_pose(pose_features, model, tokenizer, max_length=128):
     device = next(model.parameters()).device
@@ -478,7 +446,7 @@ scheduler = get_constant_schedule_with_warmup(
 
 epoch_steps = 0
 # Load checkpoint or pretrained weights
-if os.path.exists(best_checkpoint_path_isignB4):
+if os.path.exists(""): #best_checkpoint_path_isignB4
     start_epoch, best_val_B4, best_val_loss, best_val_B4_isign, best_val_loss_isign, best_val_B1_isign, epoch_steps = load_checkpoint(
         model, optimizer, scheduler, best_checkpoint_path_isignB4
     )
@@ -523,16 +491,66 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
             pose_features = eval_batch['pose_features'].to(device)
             labels = eval_batch['labels'].to(device)
             
-            # Generate predictions using the generate_from_pose function
-            preds = generate_from_pose(pose_features.cpu().numpy(), model, tokenizer_target, max_length=128)
+            input_ids = eval_batch['input_ids'].to(device)
+            pose_features = eval_batch['pose_features'].to(device) 
+            attention_mask = eval_batch['attention_mask'].to(device)
+            pose_mask = eval_batch['pose_mask'].to(device)
             
+            # Split input_ids into components
+            pose_token = input_ids[:, 0:1]  # <pose>
+            english_token_idx = MAX_FRAMES + 1  # After pose token and pad tokens
+            english_token = input_ids[:, english_token_idx:english_token_idx+1]  # <English>
+            text_portion = input_ids[:, english_token_idx+1:]  # Rest is text
+        
+            # Get embeddings separately
+            pose_token_embeds = model.gpt.transformer.wte(pose_token)
+            english_token_embeds = model.gpt.transformer.wte(english_token)
+            text_embeds = model.gpt.transformer.wte(text_portion)  # Limit text to 128
+            
+            # Project pose features
+            projected_pose = model.pose_projection(pose_features)  # [batch_size, max_pose_len, hidden_size]
+            
+            # print(f"Shapes - pose_token: {pose_token_embeds.shape}, pose: {projected_pose.shape}, "
+            #   f"english: {english_token_embeds.shape}, text: {text_embeds.shape}")
+        
+
+            combined_embeds = torch.cat([
+            pose_token_embeds,      # <pose>
+            projected_pose,         # pose features
+            english_token_embeds,   # <English>
+            text_embeds            # text (truncated)
+        ], dim=1)
+
+
+            # Generate predictions using the generate_from_pose function
+            #preds = generate_from_pose(pose_features.cpu().numpy(), model, tokenizer_target, max_length=128)
+            generated_ids = model.gpt.generate(
+                inputs_embeds=combined_embeds,
+                attention_mask=attention_mask,
+                max_new_tokens=max_length_decoder,
+                pad_token_id=tokenizer_target.pad_token_id,
+                eos_token_id=tokenizer_target.eos_token_id,
+                num_beams=num_beams,
+                length_penalty=0.6,
+                no_repeat_ngram_size=3,
+                early_stopping=True
+            )
+            
+            # Process predictions and references
+            generated_ids = torch.where(
+                generated_ids == -100,
+                torch.tensor(tokenizer_target.pad_token_id).to(generated_ids.device),
+                generated_ids
+            )
+
             # Process labels
             labels = torch.where(
                 labels == -100,
                 torch.tensor(tokenizer_target.pad_token_id).to(labels.device),
                 labels
             )
-            
+
+            preds = tokenizer_target.batch_decode(generated_ids, skip_special_tokens=True)
             refs = tokenizer_target.batch_decode(labels, skip_special_tokens=True)
             
             ref_tokens = [ref.strip().split() for ref in refs]
@@ -697,7 +715,7 @@ for epoch in range(start_epoch, num_epochs):
         #progress_bar.set_postfix({'Loss': loss.item()})
         
         # Evaluation phase (every 1000 steps)
-        if epoch_steps % 1000 == 0:
+        if epoch_steps % 2500 == 0:
             end_time = time.time()
             elapsed_time = end_time - start_time
             print(f"Elapsed time: {elapsed_time:.2f} seconds")
