@@ -365,7 +365,11 @@ class FeatureVectorDataset(Dataset):
 
     def _get_single_item(self, idx):
         video_uid = self.video_uids[idx]
-        feature_vector = self.load_and_preprocess_features(video_uid)
+        try:
+            feature_vector = self.load_and_preprocess_features(video_uid)
+        except ValueError as e:
+            print(e)
+            print(f'Error in video_uid: {self.labels[idx]}')
         # Pad or truncate the feature vector to the maximum number of frames
         attention_mask = np.ones(len(feature_vector), dtype=np.float32)
         if len(feature_vector) < self.max_frames:
@@ -436,6 +440,8 @@ class FeatureVectorDataset(Dataset):
             all_features.append(keypoints)
         
         # Stack all features along the frames (axis 0)
+        if len(all_features) == 0:
+            raise ValueError(f'No features found for {video_paths}')
         final_features = np.vstack(all_features)
         return final_features
 

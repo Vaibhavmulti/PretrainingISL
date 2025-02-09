@@ -1,8 +1,8 @@
 # Uncomment bestisgnb4path if you want to load from the checkpoint.
 
 project_name = "CISLR_Pretraining"
-sub_project_name = "NewMT_GN_RF_MixIsign_PT1"
-run_name = "NewMT_GN_RF_MixIsign_PT1"
+sub_project_name = "LastMT_GN_RF_MixIsign_PTNO"
+run_name = "LastMT_GN_RF_MixIsign_PTNO"
 
 # Gausian Noise , Random frame sampling , Isign mixed with CISLR linearly
 
@@ -11,13 +11,17 @@ steps_for_100percentIsign = 60000
 import os
 import pandas as pd
 # # Set the visible GPU devices
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 
 
-train_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/train_MT_dedup.csv')
-eval_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/val_MT_dedup.csv')
-test_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/test_MT_dedup.csv')
+
+train_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/train_MT_last.csv')
+eval_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/val_MT_last.csv')
+test_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/test_MT_last.csv')
+
+# train_df = train_df.sample(n=1000)
+# eval_df = eval_df.sample(n=1000)
 
 
 import re
@@ -31,11 +35,12 @@ import math
 import ast
 import collections
 import math
+import sacrebleu
 
 from tqdm import tqdm
 from transformers import (
     BertConfig, BertModel,
-    GPT2Config, GPT2LMHeadModel,
+    GPT2Config, GPT2LMHeadModel, GPT2Tokenizer,
     EncoderDecoderModel,
     PreTrainedTokenizerFast,
     Seq2SeqTrainer, Seq2SeqTrainingArguments,
@@ -139,40 +144,67 @@ train_df2 = pd.read_csv("/DATA3/vaibhav/isign/PretrainingISL/isign_new.csv")
 # Step 2: Train Tokenizers
 # Combine source and target sequences for a joint tokenizer
 #all_sequences = train_df['SENTENCE_UNICIDE'].tolist() + train_df['text'].tolist()
+# train_df2 = train_df2.sample(n=1000)
+# eval_df2 = eval_df2.sample(n=1000)
 
 
 all_sequences_target = train_df['text'].tolist() + train_df2['text'].tolist()
 #all_sequences_target = train_df['text'].values.tolist() + train_df2['text'].values.tolist()
 
 
-# Initialize and train the tokenizer
-tokenizer_model = models.BPE()
-tokenizer = Tokenizer(tokenizer_model)
-tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+# from transformers import GPT2TokenizerFast
 
-trainer = trainers.BpeTrainer(
-    vocab_size=vocab_size_decoder,
-    special_tokens=["<s>", "<pad>", "</s>", "<unk>", "<mask>", "<ENGLISH>"]
-)
+# tokenizer_target = GPT2TokenizerFast.from_pretrained('gpt2', 
+#     bos_token="<s>",
+#     eos_token="</s>",
+#     unk_token="<unk>", 
+#     pad_token="<pad>",
+#     mask_token="<mask>",
+#     additional_special_tokens=['<PERSON>', '<UNKNOWN>']
+# )
 
-tokenizer.train_from_iterator(all_sequences_target, trainer=trainer)
+tokenizer_target = GPT2Tokenizer.from_pretrained('gpt2')
+# tokenizer_target.pad_token = tokenizer_target.eos_token
+# # Define special tokens
+
+# print(len(tokenizer_target))
+tokenizer_target.add_special_tokens({
+    "bos_token": "<s>",
+    "eos_token": "</s>",
+    "unk_token": "<unk>",
+    "pad_token": "<pad>",
+    "mask_token": "<mask>",
+    'additional_special_tokens': ['<PERSON>', '<UNKNOWN>']
+})
+
+# # # Initialize and train the tokenizer
+# tokenizer_model = models.BPE()
+# tokenizer = Tokenizer(tokenizer_model)
+# tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+
+# trainer = trainers.BpeTrainer(
+#     vocab_size=vocab_size_decoder,
+#     special_tokens=["<s>", "<pad>", "</s>", "<unk>", "<mask>", "<ENGLISH>"]
+# )
+
+# tokenizer.train_from_iterator(all_sequences_target, trainer=trainer)
 # Save the tokenizer
 #Make tokenizer_file if it does not exist
 
 if not os.path.exists('tokenizer_file'):
     os.makedirs('tokenizer_file')
 
-tokenizer.save("tokenizer_file/target_tokenizer.json")
+# tokenizer.save("tokenizer_file/target_tokenizer.json")
 
 # Load the tokenizer as a PreTrainedTokenizerFast
-tokenizer_target = PreTrainedTokenizerFast(tokenizer_file="tokenizer_file/target_tokenizer.json")
-tokenizer_target.add_special_tokens({
-    "bos_token": "<s>",
-    "eos_token": "</s>",
-    "unk_token": "<unk>",
-    "pad_token": "<pad>",
-    "mask_token": "<mask>"
-})
+# tokenizer_target = PreTrainedTokenizerFast(tokenizer_file="tokenizer_file/target_tokenizer.json")
+# tokenizer_target.add_special_tokens({
+#     "bos_token": "<s>",
+#     "eos_token": "</s>",
+#     "unk_token": "<unk>",
+#     "pad_token": "<pad>",
+#     "mask_token": "<mask>"
+# })
 
 
 
@@ -241,26 +273,16 @@ eval2_dataset = FeatureVectorDataset_Isign(eval2_video_uids, tokenizer_target,
                                         MAX_FRAMES, POSE_DIR_ISIGN, eval2_labels, 
                                         step_frames=STEP_FRAMES, add_noise = ADD_NOISE_ISIGN)
 
-# tp_tensor = torch.tensor([    0,   146,   124,  2562,   450,   144,  1785,   133,  8466,     2], dtype=torch.long)
-# print(tokenizer_target.convert_ids_to_tokens(tp_tensor))
 # Create DataLoaders
 print('Creating DataLoaders...')
-# train_loader = DataLoader(
-#     train_dataset, 
-#     batch_size=batch_size,
-#     shuffle=True,
-#     num_workers=2,  # Reduced workers
-#     pin_memory=True,
-#     prefetch_factor=2,  # Add prefetch
-#     persistent_workers=True  # Keep workers alive
-# )
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=32, pin_memory=True, prefetch_factor=2)
-eval_loader = DataLoader(eval_dataset, batch_size=batch_size, num_workers=32, pin_memory=True, prefetch_factor=2)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=32, pin_memory=True, prefetch_factor=2)
+
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, prefetch_factor=2)
+eval_loader = DataLoader(eval_dataset, batch_size=batch_size, num_workers=8, pin_memory=True, prefetch_factor=2)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=8, pin_memory=True, prefetch_factor=2)
 
 
-isign_loader = DataLoader(train2_dataset, batch_size=batch_size, shuffle=True, num_workers=32, pin_memory=True, prefetch_factor=2)
-eval2_loader = DataLoader(eval2_dataset, batch_size=batch_size, num_workers=32, pin_memory=True, prefetch_factor=2)
+isign_loader = DataLoader(train2_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True, prefetch_factor=2)
+eval2_loader = DataLoader(eval2_dataset, batch_size=batch_size, num_workers=8, pin_memory=True, prefetch_factor=2)
 
 
 isign_loader_cycle = cycle(isign_loader)  # To cycle through ISIGN when exhausted
@@ -283,7 +305,7 @@ print(encoder_config)
 
 # Decoder Configuration and Model
 decoder_config = GPT2Config(
-    vocab_size=tokenizer_target.vocab_size,
+    vocab_size=len(tokenizer_target),
     n_positions=max_length_decoder, # We have padded and truncated to 128
     n_embd=decoder_hidden_size,
     n_layer=num_decoder_layers,
@@ -298,7 +320,7 @@ decoder_config = GPT2Config(
 )
 print(decoder_config)
 decoder = GPT2LMHeadModel(decoder_config)
-
+decoder.resize_token_embeddings(len(tokenizer_target))
 # Linear layer to project feature vectors to the expected input shape
 class FeatureProjection(torch.nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dims = 1024):
@@ -318,6 +340,7 @@ class FeatureProjection(torch.nn.Module):
 # Combine Encoder and Decoder into EncoderDecoderModel
 feature_projection = FeatureProjection(num_keypoints, encoder_config.hidden_size)
 model = EncoderDecoderModel(encoder=encoder, decoder=decoder)
+model.decoder.resize_token_embeddings(len(tokenizer_target))
 
 # Tie weights (optional)
 model.config.decoder_start_token_id = tokenizer_target.bos_token_id
@@ -325,6 +348,9 @@ model.config.eos_token_id = tokenizer_target.eos_token_id
 model.config.pad_token_id = tokenizer_target.pad_token_id
 model.config.vocab_size = decoder_config.vocab_size
 model.config.max_length = max_length_decoder
+
+# After creating your model and adding special tokens
+
 
 # Load the best model checkpoint if it exists
 # Create directory if it does not exist
@@ -455,6 +481,8 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
     feature_projection.eval()
     eval_loss = 0.0
     all_refs = []
+    sacre_refs = []
+    sacre_preds = []
     all_preds = []
     
     with torch.no_grad():
@@ -501,6 +529,12 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
             preds = tokenizer_target.batch_decode(generated_ids, skip_special_tokens=True)
             refs = tokenizer_target.batch_decode(labels, skip_special_tokens=True)
             
+            for ref in refs:
+                sacre_refs.append(str(ref))
+            
+            for pred in preds:
+                sacre_preds.append(str(pred))
+            
             ref_tokens = [ref.strip().split() for ref in refs]
             pred_tokens = [pred.strip().split() for pred in preds]
             
@@ -510,10 +544,16 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
     # Calculate metrics
     avg_eval_loss = eval_loss / len(eval_loader)
     bleu1, bleu2, bleu3, bleu4 = quick_bleu_metric(all_refs, all_preds, split=f'{log_what }Validation')
-    
+    bleu_sacre = sacrebleu.corpus_bleu(sacre_preds, [sacre_refs])
+    bleu_sacre1, bleu_sacre2, bleu_sacre3, bleu_sacre4 =  bleu_sacre.precisions[0], bleu_sacre.precisions[1], bleu_sacre.precisions[2], bleu_sacre.precisions[3]
     # Save best model
     # Log metrics
     if log_what == "CISLR":
+
+        print(f'Sacre Bleu1_CISLR :{bleu_sacre1}')
+        print(f'Sacre Bleu2_CISLR :{bleu_sacre2}')
+        print(f'Sacre Bleu3_CISLR :{bleu_sacre3}')
+        print(f'Sacre Bleu4_CISLR :{bleu_sacre4}')
         if bleu4 > best_val_B4 or (bleu4 == best_val_B4 and avg_eval_loss < best_val_loss):
             best_val_B4 = bleu4
             best_val_loss = avg_eval_loss
@@ -538,8 +578,18 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
             'val/bleu3': bleu3 * 100,
             'val/bleu4': bleu4 * 100
         })
+        wandb.log({
+            'val/bleu1_sacre': bleu_sacre1,
+            'val/bleu2_sacre': bleu_sacre2,
+            'val/bleu3_sacre': bleu_sacre3,
+            'val/bleu4_sacre': bleu_sacre4
+        })
     elif log_what == "ISIGN":
-        if counter >= 3:
+        print(f'Sacre Bleu1_Isign :{bleu_sacre1}')
+        print(f'Sacre Bleu2_Isign :{bleu_sacre2}')
+        print(f'Sacre Bleu3_Isign :{bleu_sacre3}')
+        print(f'Sacre Bleu4_Isign :{bleu_sacre4}')
+        if counter >= 1:
             if bleu4 > best_val_B4_isign or (bleu4 == best_val_B4_isign and avg_eval_loss < best_val_loss_isign):
                 best_val_B4_isign = bleu4
                 best_val_loss_isign = avg_eval_loss
@@ -579,6 +629,12 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
             'val/bleu3_isign': bleu3 * 100,
             'val/bleu4_isign': bleu4 * 100
         })
+        wandb.log({
+            'val/bleu1_sacre_isign': bleu_sacre1,
+            'val/bleu2_sacre_isign': bleu_sacre2,
+            'val/bleu3_sacre_isign': bleu_sacre3,
+            'val/bleu4_sacre_isign': bleu_sacre4
+        })
     
     # Clean up memory
     torch.cuda.empty_cache()
@@ -606,8 +662,12 @@ for epoch in range(start_epoch, num_epochs):
     while (True):
         if epoch_steps % 1000 == 0:
             print(f"Training_step: {epoch_steps}")
+            print(f'Bett MT val B4: {best_val_B4}')
         optimizer.zero_grad()
-        threshold = get_threshold(epoch_steps, steps_for_100percentIsign)
+        #threshold = get_threshold(epoch_steps, steps_for_100percentIsign)
+        threshold = 1.1
+        #threshold = best_val_B4
+        
         if random.random() < threshold:
             try:
                 batch = next(isign_loader_cycle)
