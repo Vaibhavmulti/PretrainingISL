@@ -2,26 +2,28 @@
 # LIne 445 path given to load the pretrained model. wandb must also there now fix those.
 # Change threshold, tokenizeer, model.resize() , lr , model size , sampling rate.
 
-project_name = "CISLR_Pretraining"
-sub_project_name = "FrameMatch_Linear120kBPE0.85Threshold_PT1"
-run_name = "FrameMatch_Linear120kBPE0.85Threshold_PT1"
+#STEP_FRAMES_CISLR ???
+
+project_name = "BLIMP_Pretraining"
+sub_project_name = "BlimpFrameMatchA100_Linear60kBPE0.85Threshold_PT1"
+run_name = "BlimpFrameMatchA100_Linear60kBPE0.85Threshold_PT1"
 
 # Gausian Noise , Random frame sampling , Isign mixed with CISLR linearly
 
 randomize_word_order = False
-steps_for_100percentIsign = 120000
+steps_for_100percentIsign = 60000
 import os
 import pandas as pd
 # # Set the visible GPU devices
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
-#not 2 
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 
 
 
 
-train_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/train_MT16M.csv')
-eval_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/val_MT16M.csv')
-test_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/test_MT16M.csv')
+
+train_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/train_BLIMPCISLR.csv')
+eval_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/val_BLIMPCISLR.csv')
+test_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/test_BLIMPCISLR.csv')
 
 # train_df = train_df.sample(n=1000)
 # eval_df = eval_df.sample(n=1000)
@@ -137,9 +139,9 @@ hyperparameters = {'learning_rate': learning_rate,
 
 
 
-wandb.init(project=project_name, name=run_name, config = hyperparameters)
+#wandb.init(project=project_name, name=run_name, config = hyperparameters)
 
-#wandb.init(project=project_name, config = hyperparameters, id="2lgee9dk", resume="must")
+wandb.init(project=project_name, config = hyperparameters, id="sa964e9z", resume="must")
 
 #wandb.init(project=project_name, config = hyperparameters, id="7ike4lk8", resume="must")
 
@@ -188,10 +190,10 @@ tokenizer.train_from_iterator(all_sequences_target, trainer=trainer)
 if not os.path.exists('tokenizer_file'):
     os.makedirs('tokenizer_file')
 
-tokenizer.save("tokenizer_file/target_tokenizer.json")
+tokenizer.save("tokenizer_file/target_tokenizer_blimp.json")
 
 #Load the tokenizer as a PreTrainedTokenizerFast
-tokenizer_target = PreTrainedTokenizerFast(tokenizer_file="tokenizer_file/target_tokenizer.json")
+tokenizer_target = PreTrainedTokenizerFast(tokenizer_file="tokenizer_file/target_tokenizer_blimp.json")
 tokenizer_target.add_special_tokens({
     "bos_token": "<s>",
     "eos_token": "</s>",
@@ -200,7 +202,6 @@ tokenizer_target.add_special_tokens({
     "mask_token": "<mask>",
     'additional_special_tokens': ['<PERSON>', '<UNKNOWN>']
 })
-
 
 
 # Extract video UIDs and labels
@@ -271,13 +272,13 @@ eval2_dataset = FeatureVectorDataset_Isign(eval2_video_uids, tokenizer_target,
 # Create DataLoaders
 print('Creating DataLoaders...')
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True, prefetch_factor=2)
-eval_loader = DataLoader(eval_dataset, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, prefetch_factor=2)
+eval_loader = DataLoader(eval_dataset, batch_size=batch_size*4, num_workers=4, pin_memory=True, prefetch_factor=2)
+test_loader = DataLoader(test_dataset, batch_size=batch_size*4, num_workers=4, pin_memory=True, prefetch_factor=2)
 
 
-isign_loader = DataLoader(train2_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True, prefetch_factor=2)
-eval2_loader = DataLoader(eval2_dataset, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2)
+isign_loader = DataLoader(train2_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, prefetch_factor=2)
+eval2_loader = DataLoader(eval2_dataset, batch_size=batch_size*4, num_workers=4, pin_memory=True, prefetch_factor=2)
 
 
 isign_loader_cycle = cycle(isign_loader)  # To cycle through ISIGN when exhausted
@@ -443,7 +444,7 @@ epoch_steps = 0
 # Load checkpoint or pretrained weights
 
 #/DATA3/vaibhav/isign/PretrainingISL/predictions_new/CISLR_Pretraining_FrameMatch_Linear60kBPE0.85Threshold_PT1_best_model_checkpoint_isignB4.pth                
-if os.path.exists(""): #best_checkpoint_path_isignB4
+if os.path.exists("/DATA3/vaibhav/isign/PretrainingISL/predictions_new/BLIMP_Pretraining_BlimpFrameMatchA100_Linear60kBPE0.85Threshold_PT2_best_model_checkpoint_isignB4.pth"): #best_checkpoint_path_isignB4
     start_epoch, best_val_B4, best_val_loss, best_val_B4_isign, best_val_loss_isign, best_val_B1_isign, epoch_steps = load_checkpoint(
         model, feature_projection, optimizer, scheduler, best_checkpoint_path_isignB4
     )

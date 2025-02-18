@@ -1,31 +1,30 @@
 # Uncomment bestisgnb4path if you want to load from the checkpoint.
-# LIne 445 path given to load the pretrained model. wandb must also there now fix those.
-# Change threshold, tokenizeer, model.resize() , lr , model size , sampling rate.
-
-project_name = "CISLR_Pretraining"
-sub_project_name = "FrameMatch_Linear120kBPE0.85Threshold_PT1"
-run_name = "FrameMatch_Linear120kBPE0.85Threshold_PT1"
+# Threshold 
+project_name = "OpenASL"
+sub_project_name = "OpenASLPT1"
+run_name = "OpenASLPT1"
 
 # Gausian Noise , Random frame sampling , Isign mixed with CISLR linearly
 
 randomize_word_order = False
-steps_for_100percentIsign = 120000
+steps_for_100percentIsign = 60000
 import os
 import pandas as pd
 # # Set the visible GPU devices
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
-#not 2 
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 
 
 
-train_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/train_MT16M.csv')
-eval_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/val_MT16M.csv')
-test_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/test_MT16M.csv')
+train_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/train_MT_OPENASL.csv')
+eval_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/val_MT_OPENASL.csv')
+test_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/test_MT_OPENASL.csv')
 
+print(train_df.columns)
 # train_df = train_df.sample(n=1000)
 # eval_df = eval_df.sample(n=1000)
 
+#open_asl_test='/data/dept_share/sanjeet/Dataset/Sign_lanuguage_data_set/openasl/OpenASL/data/test_data.csv' 
 
 import re
 import numpy as np
@@ -73,16 +72,16 @@ def get_threshold(current_step, total_steps):
     if total_steps == 0:
         return 1.1
     else:
-        return min(current_step / total_steps, 0.85) # Changed from 0.9
+        return min(current_step / total_steps, 0.85)
 
 #Hyperparameters here now 
-learning_rate = 3e-4 #3e-4 
-num_encoder_layers = 4 #4
-num_decoder_layers = 4 #4
+learning_rate = 1e-4 #3e-4 
+num_encoder_layers = 2 #4
+num_decoder_layers = 2 #4
 encoder_hidden_size = 512 #512
 decoder_hidden_size = 512 #512
-num_attention_heads = 8
-dropout = 0.1
+num_attention_heads = 4 #8
+dropout = 0.3 #0.1
 MAX_FRAMES = 300  # Max video frames.
 max_position_embeddings_encoder = MAX_FRAMES
 num_beams = 3
@@ -97,11 +96,11 @@ vocab_size_decoder = 15000
 num_keypoints = 152 # We have cherrypicked these
 WEIGTH_DECAY = 0.01
 
-POSE_DIR = "/DATA7/vaibhav/tokenization/CISLR/CISLR_v1.5-a_videos_poses/"
-POSE_DIR_ISIGN = "/DATA7/vaibhav/isign/Data/iSign-poses_v1.1/"
-STEP_FRAMES = None  # Random sampling of frames.
+POSE_DIR = "/DATA1007/sanjeet/ISL/WLASL/start_kit/pose_video/"
+POSE_DIR_ISIGN = '/data/dept_share/sanjeet/Dataset/Sign_lanuguage_data_set/openasl/OpenASL/data/pose/openasl_pose'
+#STEP_FRAMES = None  # Random sampling of frames.
 STEP_FRAMES_ISIGN = None
-STEP_FRAMES_CISLR = 4
+STEP_FRAMES_CISLR = 3
 ADD_NOISE_ISIGN = False
 ADD_NOISE_CISLR = True
 
@@ -130,24 +129,30 @@ hyperparameters = {'learning_rate': learning_rate,
                         'steps_for_100percentIsign': steps_for_100percentIsign,
                         'ADD_NOISE_ISIGN': ADD_NOISE_ISIGN,
                         'ADD_NOISE_CISLR': ADD_NOISE_CISLR,
-                        'Step_frames_sampling': STEP_FRAMES,
-                        'Step_frame_isign': STEP_FRAMES_ISIGN,
-                        'Step_frame_cislr': STEP_FRAMES_CISLR}
+                        'STEP_FRAMES_ISIGN': STEP_FRAMES_ISIGN,
+                        'STEP_FRAMES_CISLR': STEP_FRAMES_CISLR
+                        }
+
 
 
 
 
 wandb.init(project=project_name, name=run_name, config = hyperparameters)
 
-#wandb.init(project=project_name, config = hyperparameters, id="2lgee9dk", resume="must")
+#wandb.init(project=project_name, config = hyperparameters, id="c43wvsr1", resume="must")
 
 #wandb.init(project=project_name, config = hyperparameters, id="7ike4lk8", resume="must")
 
 
-eval_df2 = pd.read_csv('/DATA7/vaibhav/tokenization/val_split_unicode_filtered.csv')
-#'/DATACSEShare/sanjeet/Dataset/Sign_lanuguage_data_set/isign/Final_Processed_raw_sentences_isign.csv'
-#train_df2 = pd.read_csv('/DATA7/vaibhav/tokenization/train_split_unicode_filtered.csv')
-train_df2 = pd.read_csv("/DATA3/vaibhav/isign/PretrainingISL/isign_new.csv")
+eval_df2 = pd.read_csv('/data/dept_share/sanjeet/Dataset/Sign_lanuguage_data_set/openasl/OpenASL/data/val_data.csv')
+eval_df2 = eval_df2.rename(columns={'tokenized-text': 'text', 'vid': 'uid'})
+#'/data/dept_share/sanjeet/Dataset/Sign_lanuguage_data_set/isign/Final_Processed_raw_sentences_isign.csv'
+#train_df2 = pd.read_csv('/DATA1007/vaibhav/tokenization/train_split_unicode_filtered.csv')
+print(eval_df2.columns)
+train_df2 = pd.read_csv('/data/dept_share/sanjeet/Dataset/Sign_lanuguage_data_set/openasl/OpenASL/data/openasl_data/openasl_train_with_without_punctuation.csv')
+train_df2 = train_df2.rename(columns={'sentence_with_punctuation': 'text', 'vid': 'uid'})
+print(train_df2.columns)
+
 # Step 2: Train Tokenizers
 # Combine source and target sequences for a joint tokenizer
 #all_sequences = train_df['SENTENCE_UNICIDE'].tolist() + train_df['text'].tolist()
@@ -159,9 +164,22 @@ all_sequences_target = train_df['text'].tolist() + train_df2['text'].tolist()
 #all_sequences_target = train_df['text'].values.tolist() + train_df2['text'].values.tolist()
 
 
+# from transformers import GPT2TokenizerFast
 
-# tokenizer_target = GPT2Tokenizer.from_pretrained('gpt2')
+# tokenizer_target = GPT2TokenizerFast.from_pretrained('gpt2', 
+#     bos_token="<s>",
+#     eos_token="</s>",
+#     unk_token="<unk>", 
+#     pad_token="<pad>",
+#     mask_token="<mask>",
+#     additional_special_tokens=['<PERSON>', '<UNKNOWN>']
+# )
 
+#tokenizer_target = GPT2Tokenizer.from_pretrained('gpt2')
+# tokenizer_target.pad_token = tokenizer_target.eos_token
+# # Define special tokens
+
+# print(len(tokenizer_target))
 # tokenizer_target.add_special_tokens({
 #     "bos_token": "<s>",
 #     "eos_token": "</s>",
@@ -171,7 +189,7 @@ all_sequences_target = train_df['text'].tolist() + train_df2['text'].tolist()
 #     'additional_special_tokens': ['<PERSON>', '<UNKNOWN>']
 # })
 
-# Initialize and train the tokenizer
+# # Initialize and train the tokenizer
 tokenizer_model = models.BPE()
 tokenizer = Tokenizer(tokenizer_model)
 tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
@@ -188,10 +206,10 @@ tokenizer.train_from_iterator(all_sequences_target, trainer=trainer)
 if not os.path.exists('tokenizer_file'):
     os.makedirs('tokenizer_file')
 
-tokenizer.save("tokenizer_file/target_tokenizer.json")
+tokenizer.save("tokenizer_file/target_tokenizer_openasl.json")
 
-#Load the tokenizer as a PreTrainedTokenizerFast
-tokenizer_target = PreTrainedTokenizerFast(tokenizer_file="tokenizer_file/target_tokenizer.json")
+##Load the tokenizer as a PreTrainedTokenizerFast
+tokenizer_target = PreTrainedTokenizerFast(tokenizer_file="tokenizer_file/target_tokenizer_openasl.json")
 tokenizer_target.add_special_tokens({
     "bos_token": "<s>",
     "eos_token": "</s>",
@@ -271,13 +289,13 @@ eval2_dataset = FeatureVectorDataset_Isign(eval2_video_uids, tokenizer_target,
 # Create DataLoaders
 print('Creating DataLoaders...')
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True, prefetch_factor=2)
-eval_loader = DataLoader(eval_dataset, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, prefetch_factor=2)
+eval_loader = DataLoader(eval_dataset, batch_size=batch_size*4, num_workers=4, pin_memory=True, prefetch_factor=2)
+test_loader = DataLoader(test_dataset, batch_size=batch_size*4, num_workers=4, pin_memory=True, prefetch_factor=2)
 
 
-isign_loader = DataLoader(train2_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True, prefetch_factor=2)
-eval2_loader = DataLoader(eval2_dataset, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2)
+isign_loader = DataLoader(train2_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, prefetch_factor=2)
+eval2_loader = DataLoader(eval2_dataset, batch_size=batch_size*4, num_workers=4, pin_memory=True, prefetch_factor=2)
 
 
 isign_loader_cycle = cycle(isign_loader)  # To cycle through ISIGN when exhausted
@@ -315,11 +333,7 @@ decoder_config = GPT2Config(
 )
 print(decoder_config)
 decoder = GPT2LMHeadModel(decoder_config)
-
-########################################################
-#decoder.resize_token_embeddings(len(tokenizer_target))
-########################################################
-
+# decoder.resize_token_embeddings(len(tokenizer_target))
 # Linear layer to project feature vectors to the expected input shape
 class FeatureProjection(torch.nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dims = 1024):
@@ -339,10 +353,7 @@ class FeatureProjection(torch.nn.Module):
 # Combine Encoder and Decoder into EncoderDecoderModel
 feature_projection = FeatureProjection(num_keypoints, encoder_config.hidden_size)
 model = EncoderDecoderModel(encoder=encoder, decoder=decoder)
-
-########################################################################
 #model.decoder.resize_token_embeddings(len(tokenizer_target))
-########################################################################
 
 # Tie weights (optional)
 model.config.decoder_start_token_id = tokenizer_target.bos_token_id
@@ -441,8 +452,6 @@ scheduler = get_constant_schedule_with_warmup(
 
 epoch_steps = 0
 # Load checkpoint or pretrained weights
-
-#/DATA3/vaibhav/isign/PretrainingISL/predictions_new/CISLR_Pretraining_FrameMatch_Linear60kBPE0.85Threshold_PT1_best_model_checkpoint_isignB4.pth                
 if os.path.exists(""): #best_checkpoint_path_isignB4
     start_epoch, best_val_B4, best_val_loss, best_val_B4_isign, best_val_loss_isign, best_val_B1_isign, epoch_steps = load_checkpoint(
         model, feature_projection, optimizer, scheduler, best_checkpoint_path_isignB4
@@ -552,16 +561,16 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
     bleu_sacre1, bleu_sacre2, bleu_sacre3, bleu_sacre4 =  bleu_sacre.precisions[0], bleu_sacre.precisions[1], bleu_sacre.precisions[2], bleu_sacre.precisions[3]
     # Save best model
     # Log metrics
-    if log_what == "CISLR":
+    if log_what == "WASL":
 
-        print(f'Sacre Bleu1_CISLR :{bleu_sacre1}')
-        print(f'Sacre Bleu2_CISLR :{bleu_sacre2}')
-        print(f'Sacre Bleu3_CISLR :{bleu_sacre3}')
-        print(f'Sacre Bleu4_CISLR :{bleu_sacre4}')
+        print(f'Sacre Bleu1_WASL :{bleu_sacre1}')
+        print(f'Sacre Bleu2_WASL :{bleu_sacre2}')
+        print(f'Sacre Bleu3_WASL :{bleu_sacre3}')
+        print(f'Sacre Bleu4_WASL :{bleu_sacre4}')
         if bleu4 > best_val_B4 or (bleu4 == best_val_B4 and avg_eval_loss < best_val_loss):
             best_val_B4 = bleu4
             best_val_loss = avg_eval_loss
-            print('Saving CISLR best model checkpoint...')
+            print('Saving WASL best model checkpoint...')
             save_checkpoint(
                 model, feature_projection, optimizer, scheduler,
                 epoch, best_val_B4, best_val_loss, best_checkpoint_path, 
@@ -588,16 +597,16 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
             'val/bleu3_sacre': bleu_sacre3,
             'val/bleu4_sacre': bleu_sacre4
         })
-    elif log_what == "ISIGN":
-        print(f'Sacre Bleu1_Isign :{bleu_sacre1}')
-        print(f'Sacre Bleu2_Isign :{bleu_sacre2}')
-        print(f'Sacre Bleu3_Isign :{bleu_sacre3}')
-        print(f'Sacre Bleu4_Isign :{bleu_sacre4}')
+    elif log_what == "HOW2SIGN":
+        print(f'Sacre Bleu1_HOW2SIGN :{bleu_sacre1}')
+        print(f'Sacre Bleu2_HOW2SIGN :{bleu_sacre2}')
+        print(f'Sacre Bleu3_HOW2SIGN :{bleu_sacre3}')
+        print(f'Sacre Bleu4_HOW2SIGN :{bleu_sacre4}')
         if counter >= 1:
             if bleu4 > best_val_B4_isign or (bleu4 == best_val_B4_isign and avg_eval_loss < best_val_loss_isign):
                 best_val_B4_isign = bleu4
                 best_val_loss_isign = avg_eval_loss
-                print('Saving IsignB4 best model checkpoint...')
+                print('Saving HOW2SIGN best model checkpoint...')
                 save_checkpoint(
                     model, feature_projection, optimizer, scheduler,
                     epoch, best_val_B4, best_val_loss, best_checkpoint_path_isignB4, 
@@ -613,7 +622,7 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
             if bleu1 > best_val_B1_isign or (bleu1 == best_val_B1_isign and avg_eval_loss < best_val_loss_isign):
                 best_val_B1_isign = bleu1
                 best_val_loss_isign = avg_eval_loss
-                print('Saving IsignB1 best model checkpoint...')
+                print('Saving HOW2SIGNB1 best model checkpoint...')
                 save_checkpoint(
                     model, feature_projection, optimizer, scheduler,
                     epoch, best_val_B4, best_val_loss, best_checkpoint_path_isignB1, 
@@ -627,17 +636,17 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
                 df.to_csv(f'predictions_new/{project_name}_{sub_project_name}_predictions{log_what}B1.csv', index=False)
             
         wandb.log({
-            'val/eval_loss_isign': avg_eval_loss,
-            'val/bleu1_isign': bleu1 * 100,
-            'val/bleu2_isign': bleu2 * 100,
-            'val/bleu3_isign': bleu3 * 100,
-            'val/bleu4_isign': bleu4 * 100
+            'val/eval_loss_HOW2SIGN': avg_eval_loss,
+            'val/bleu1_HOW2SIGN': bleu1 * 100,
+            'val/bleu2_HOW2SIGN': bleu2 * 100,
+            'val/bleu3_HOW2SIGN': bleu3 * 100,
+            'val/bleu4_HOW2SIGN': bleu4 * 100
         })
         wandb.log({
-            'val/bleu1_sacre_isign': bleu_sacre1,
-            'val/bleu2_sacre_isign': bleu_sacre2,
-            'val/bleu3_sacre_isign': bleu_sacre3,
-            'val/bleu4_sacre_isign': bleu_sacre4
+            'val/bleu1_sacre_HOW2SIGN': bleu_sacre1,
+            'val/bleu2_sacre_HOW2SIGN': bleu_sacre2,
+            'val/bleu3_sacre_HOW2SIGN': bleu_sacre3,
+            'val/bleu4_sacre_HOW2SIGN': bleu_sacre4
         })
     
     # Clean up memory
@@ -723,10 +732,10 @@ for epoch in range(start_epoch, num_epochs):
         if epoch_steps % 2500 == 0:
             counter += 1
             best_val_B4, best_val_loss, best_val_B4_isign, best_val_B1_isign, best_val_loss_isign = model_eval(
-                eval_loader, "CISLR", best_val_B4, best_val_loss, best_val_B4_isign, 
+                eval_loader, "WASL", best_val_B4, best_val_loss, best_val_B4_isign, 
                 best_val_B1_isign, best_val_loss_isign, counter, epoch_steps, epoch_steps,save_model=True)
             best_val_B4, best_val_loss, best_val_B4_isign, best_val_B1_isign, best_val_loss_isign = model_eval(
-                eval2_loader, "ISIGN", best_val_B4,best_val_loss, best_val_B4_isign, 
+                eval2_loader, "HOW2SIGN", best_val_B4,best_val_loss, best_val_B4_isign, 
                 best_val_B1_isign, best_val_loss_isign,counter,  epoch_steps, epoch_steps, save_model=True)
         # if epoch_steps % 7500 == 0:
         #     # Save regular checkpoint

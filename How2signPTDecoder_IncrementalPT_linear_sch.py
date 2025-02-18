@@ -1,30 +1,33 @@
 # Uncomment bestisgnb4path if you want to load from the checkpoint.
 # LIne 445 path given to load the pretrained model. wandb must also there now fix those.
-# Change threshold, tokenizeer, model.resize() , lr , model size , sampling rate.
+# Change threshold, tokenizeer, model.resize() , lr , model size , sampling rate , sample n=1000
 
-project_name = "CISLR_Pretraining"
-sub_project_name = "FrameMatch_Linear120kBPE0.85Threshold_PT1"
-run_name = "FrameMatch_Linear120kBPE0.85Threshold_PT1"
+project_name = "How2SignPretrain"
+sub_project_name = "H2SDPT_FM_Linear60kBPE0.85Thrs_PT1"
+run_name = "H2SDPT_FM_Linear60kBPE0.85Thrs_PT1"
 
-# Gausian Noise , Random frame sampling , Isign mixed with CISLR linearly
+# Frame Match Gausian Noise , Random frame sampling , Isign mixed with CISLR linearly
 
 randomize_word_order = False
-steps_for_100percentIsign = 120000
+steps_for_100percentIsign = 60000
 import os
 import pandas as pd
 # # Set the visible GPU devices
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 #not 2 
 
 
 
 
-train_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/train_MT16M.csv')
-eval_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/val_MT16M.csv')
-test_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/test_MT16M.csv')
+train_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/train_MTWASL16M.csv')
+eval_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/val_MTWASL16M.csv')
+test_df = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/test_MTWASL16M.csv')
 
-# train_df = train_df.sample(n=1000)
-# eval_df = eval_df.sample(n=1000)
+
+tokenizer_path = '/DATA3/vaibhav/isign/PretrainingISL/helpers/custom_tokenizer_how2sign'
+model_path = '/DATA3/vaibhav/isign/PretrainingISL/helpers/custom_gpt2/best_model'
+#train_df = train_df.sample(n=100)
+#eval_df = eval_df.sample(n=100)
 
 
 import re
@@ -50,10 +53,11 @@ from transformers import (
     get_constant_schedule_with_warmup
 )
 from datasets import Dataset
+from tokenizers import ByteLevelBPETokenizer
 from torch.utils.data import DataLoader
 from tokenizers import Tokenizer, models, trainers, pre_tokenizers
 from helpers.bleu_cal import quick_bleu_metric
-from helpers.dataloaders import FeatureVectorDataset, FeatureVectorDataset_Isign
+from helpers.dataloaders import FeatureVectorDatasetBPE, FeatureVectorDataset_IsignBPE
 from pose_format import Pose
 from pose_format.pose_visualizer import PoseVisualizer
 from itertools import cycle
@@ -93,15 +97,15 @@ batch_size = 16 #64 #256
 lr_scheduler_type = 'warmup_linear_constant_afterwards'
 num_epochs = 1
 max_length_decoder = 128
-vocab_size_decoder = 15000
+vocab_size_decoder = 15000 #15000
 num_keypoints = 152 # We have cherrypicked these
 WEIGTH_DECAY = 0.01
 
-POSE_DIR = "/DATA7/vaibhav/tokenization/CISLR/CISLR_v1.5-a_videos_poses/"
-POSE_DIR_ISIGN = "/DATA7/vaibhav/isign/Data/iSign-poses_v1.1/"
-STEP_FRAMES = None  # Random sampling of frames.
+POSE_DIR = "/DATA1007/sanjeet/ISL/WLASL/start_kit/pose_video/"
+POSE_DIR_ISIGN = "/DATA1007/sanjeet/ISL/WLASL/How2Sign/videos/How2Sign_pose_all/"
+#STEP_FRAMES = None  # Random sampling of frames.
 STEP_FRAMES_ISIGN = None
-STEP_FRAMES_CISLR = 4
+STEP_FRAMES_CISLR = 3
 ADD_NOISE_ISIGN = False
 ADD_NOISE_CISLR = True
 
@@ -130,7 +134,6 @@ hyperparameters = {'learning_rate': learning_rate,
                         'steps_for_100percentIsign': steps_for_100percentIsign,
                         'ADD_NOISE_ISIGN': ADD_NOISE_ISIGN,
                         'ADD_NOISE_CISLR': ADD_NOISE_CISLR,
-                        'Step_frames_sampling': STEP_FRAMES,
                         'Step_frame_isign': STEP_FRAMES_ISIGN,
                         'Step_frame_cislr': STEP_FRAMES_CISLR}
 
@@ -144,15 +147,14 @@ wandb.init(project=project_name, name=run_name, config = hyperparameters)
 #wandb.init(project=project_name, config = hyperparameters, id="7ike4lk8", resume="must")
 
 
-eval_df2 = pd.read_csv('/DATA7/vaibhav/tokenization/val_split_unicode_filtered.csv')
+eval_df2 = pd.read_csv('/DATA1007/sanjeet/ISL/WLASL/How2Sign/how2sign_realigned_val_filtered1.csv', sep='\t')
+eval_df2 = eval_df2.rename(columns={'SENTENCE': 'text', 'SENTENCE_ID': 'uid'})
 #'/DATACSEShare/sanjeet/Dataset/Sign_lanuguage_data_set/isign/Final_Processed_raw_sentences_isign.csv'
 #train_df2 = pd.read_csv('/DATA7/vaibhav/tokenization/train_split_unicode_filtered.csv')
-train_df2 = pd.read_csv("/DATA3/vaibhav/isign/PretrainingISL/isign_new.csv")
-# Step 2: Train Tokenizers
-# Combine source and target sequences for a joint tokenizer
-#all_sequences = train_df['SENTENCE_UNICIDE'].tolist() + train_df['text'].tolist()
-# train_df2 = train_df2.sample(n=1000)
-# eval_df2 = eval_df2.sample(n=1000)
+print(eval_df2.columns)
+train_df2 = pd.read_csv('/DATA3/vaibhav/isign/PretrainingISL/How2sign_train_with_without_punctuation.csv')
+train_df2 = train_df2.rename(columns={'sentence_with_punctuation': 'text', 'SENTENCE_ID': 'uid'})
+print(train_df2.columns)
 
 
 all_sequences_target = train_df['text'].tolist() + train_df2['text'].tolist()
@@ -171,36 +173,44 @@ all_sequences_target = train_df['text'].tolist() + train_df2['text'].tolist()
 #     'additional_special_tokens': ['<PERSON>', '<UNKNOWN>']
 # })
 
-# Initialize and train the tokenizer
-tokenizer_model = models.BPE()
-tokenizer = Tokenizer(tokenizer_model)
-tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+# # Initialize and train the tokenizer
+# tokenizer_model = models.BPE()
+# tokenizer = Tokenizer(tokenizer_model)
+# tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
 
-trainer = trainers.BpeTrainer(
-    vocab_size=vocab_size_decoder,
-    special_tokens=["<s>", "<pad>", "</s>", "<unk>", "<mask>", "<PERSON>", "<UNKNOWN>"]
-)
+# trainer = trainers.BpeTrainer(
+#     vocab_size=vocab_size_decoder,
+#     special_tokens=["<s>", "<pad>", "</s>", "<unk>", "<mask>", "<PERSON>", "<UNKNOWN>"]
+# )
 
-tokenizer.train_from_iterator(all_sequences_target, trainer=trainer)
-# Save the tokenizer
-#Make tokenizer_file if it does not exist
+# tokenizer.train_from_iterator(all_sequences_target, trainer=trainer)
+# # Save the tokenizer
+# #Make tokenizer_file if it does not exist
 
-if not os.path.exists('tokenizer_file'):
-    os.makedirs('tokenizer_file')
+# if not os.path.exists('tokenizer_file'):
+#     os.makedirs('tokenizer_file')
 
-tokenizer.save("tokenizer_file/target_tokenizer.json")
+# tokenizer.save("tokenizer_file/target_tokenizer.json")
 
-#Load the tokenizer as a PreTrainedTokenizerFast
-tokenizer_target = PreTrainedTokenizerFast(tokenizer_file="tokenizer_file/target_tokenizer.json")
-tokenizer_target.add_special_tokens({
-    "bos_token": "<s>",
-    "eos_token": "</s>",
-    "unk_token": "<unk>",
-    "pad_token": "<pad>",
-    "mask_token": "<mask>",
-    'additional_special_tokens': ['<PERSON>', '<UNKNOWN>']
-})
+# #Load the tokenizer as a PreTrainedTokenizerFast
+# tokenizer_target = PreTrainedTokenizerFast(tokenizer_file="tokenizer_file/target_tokenizer.json")
+# tokenizer_target.add_special_tokens({
+#     "bos_token": "<s>",
+#     "eos_token": "</s>",
+#     "unk_token": "<unk>",
+#     "pad_token": "<pad>",
+#     "mask_token": "<mask>",
+#     'additional_special_tokens': ['<PERSON>', '<UNKNOWN>']
+# })
 
+try:
+    tokenizer_target = ByteLevelBPETokenizer(
+        f"{tokenizer_path}/vocab.json",
+        f"{tokenizer_path}/merges.txt"
+    )
+    print("Tokenizer loaded successfully")
+except Exception as e:
+    raise Exception(f"Error loading tokenizer: {str(e)}")
 
 
 # Extract video UIDs and labels
@@ -222,17 +232,40 @@ train2_labels = [f'<s>{text}</s>' for text in train_df2['text'].tolist()]
 eval2_labels = [f'<s>{text}</s>' for text in eval_df2['text'].tolist()]
 
 
+# def tokenize_in_batches(texts, tokenizer, max_length, batch_size=1000):
+#     all_tokens = []
+#     for i in range(0, len(texts), batch_size):
+#         batch = texts[i:i + batch_size]
+#         tokens = tokenizer(
+#             batch, 
+#             max_length=max_length, 
+#             padding="max_length", 
+#             truncation=True
+#         )['input_ids']
+#         all_tokens.extend(tokens)
+#     return all_tokens
+
 def tokenize_in_batches(texts, tokenizer, max_length, batch_size=1000):
     all_tokens = []
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
-        tokens = tokenizer(
-            batch, 
-            max_length=max_length, 
-            padding="max_length", 
-            truncation=True
-        )['input_ids']
-        all_tokens.extend(tokens)
+        batch_tokens = []
+        for text in batch:
+            # Encode each text individually
+            encoding = tokenizer.encode(text)
+            input_ids = encoding.ids
+            
+            # Handle padding/truncation
+            if len(input_ids) > max_length:
+                input_ids = input_ids[:max_length]
+            else:
+                # Pad with pad token ID
+                pad_token_id = tokenizer.token_to_id("<pad>")
+                pad_length = max_length - len(input_ids)
+                input_ids.extend([pad_token_id] * pad_length)
+            
+            batch_tokens.append(input_ids)
+        all_tokens.extend(batch_tokens)
     return all_tokens
 
 
@@ -240,31 +273,31 @@ def tokenize_in_batches(texts, tokenizer, max_length, batch_size=1000):
 print('Tokenizing labels...')
 train_labels = tokenize_in_batches(train_labels, tokenizer_target, max_length_decoder)
 #train_labels = tokenizer_target(train_labels, max_length=max_length_decoder, padding="max_length", truncation=True)['input_ids']
-eval_labels = tokenizer_target(eval_labels, max_length=max_length_decoder, padding="max_length", truncation=True)['input_ids']
-test_labels = tokenizer_target(test_labels, max_length=max_length_decoder, padding="max_length", truncation=True)['input_ids']
+eval_labels = tokenize_in_batches(eval_labels, tokenizer_target, max_length_decoder)
+test_labels = tokenize_in_batches(test_labels, tokenizer_target, max_length_decoder)
 
-train2_labels = tokenizer_target(train2_labels, max_length=max_length_decoder, padding="max_length", truncation=True)['input_ids']
-eval2_labels = tokenizer_target(eval2_labels, max_length=max_length_decoder, padding="max_length", truncation=True)['input_ids']
+train2_labels = tokenize_in_batches(train2_labels, tokenizer_target, max_length_decoder)
+eval2_labels = tokenize_in_batches(eval2_labels, tokenizer_target, max_length_decoder)
 
 # Create datasets
 print('Creating datasets...')
 
 
-train_dataset = FeatureVectorDataset(train_video_uids,tokenizer_target,
+train_dataset = FeatureVectorDatasetBPE(train_video_uids,tokenizer_target,
                                       randomize_word_order, MAX_FRAMES, POSE_DIR,
                                       train_labels, step_frames=STEP_FRAMES_CISLR, add_noise = ADD_NOISE_CISLR)
-test_dataset = FeatureVectorDataset(test_video_uids,tokenizer_target, 
+test_dataset = FeatureVectorDatasetBPE(test_video_uids,tokenizer_target, 
                                     randomize_word_order, MAX_FRAMES, POSE_DIR,
                                     test_labels,step_frames=STEP_FRAMES_CISLR, add_noise = ADD_NOISE_CISLR)
-eval_dataset = FeatureVectorDataset(eval_video_uids,tokenizer_target, 
+eval_dataset = FeatureVectorDatasetBPE(eval_video_uids,tokenizer_target, 
                                     randomize_word_order,MAX_FRAMES, POSE_DIR,
                                     eval_labels,step_frames=STEP_FRAMES_CISLR, add_noise = ADD_NOISE_CISLR)
 
-train2_dataset = FeatureVectorDataset_Isign(train2_video_uids, tokenizer_target,
+train2_dataset = FeatureVectorDataset_IsignBPE(train2_video_uids, tokenizer_target,
                                             MAX_FRAMES, POSE_DIR_ISIGN, train2_labels ,
                                            step_frames=STEP_FRAMES_ISIGN, add_noise = ADD_NOISE_ISIGN)
 
-eval2_dataset = FeatureVectorDataset_Isign(eval2_video_uids, tokenizer_target, 
+eval2_dataset = FeatureVectorDataset_IsignBPE(eval2_video_uids, tokenizer_target, 
                                         MAX_FRAMES, POSE_DIR_ISIGN, eval2_labels, 
                                         step_frames=STEP_FRAMES_ISIGN, add_noise = ADD_NOISE_ISIGN)
 
@@ -272,12 +305,12 @@ eval2_dataset = FeatureVectorDataset_Isign(eval2_video_uids, tokenizer_target,
 print('Creating DataLoaders...')
 
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True, prefetch_factor=2)
-eval_loader = DataLoader(eval_dataset, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2)
+eval_loader = DataLoader(eval_dataset, batch_size=batch_size*2, num_workers=2, pin_memory=True, prefetch_factor=2)
+test_loader = DataLoader(test_dataset, batch_size=batch_size*2, num_workers=2, pin_memory=True, prefetch_factor=2)
 
 
 isign_loader = DataLoader(train2_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True, prefetch_factor=2)
-eval2_loader = DataLoader(eval2_dataset, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2)
+eval2_loader = DataLoader(eval2_dataset, batch_size=batch_size*2, num_workers=2, pin_memory=True, prefetch_factor=2)
 
 
 isign_loader_cycle = cycle(isign_loader)  # To cycle through ISIGN when exhausted
@@ -298,27 +331,45 @@ encoder_config = BertConfig(
 encoder = BertModel(encoder_config)
 print(encoder_config)
 
-# Decoder Configuration and Model
+
+
+vcb = tokenizer_target.get_vocab()
+decoder_start_token_id = vcb.get("<s>")
+print(decoder_start_token_id)
+print("*"*50)
 decoder_config = GPT2Config(
-    vocab_size=len(tokenizer_target),
-    n_positions=max_length_decoder, # We have padded and truncated to 128
+    vocab_size=tokenizer_target.get_vocab_size() + 7 , # Add special tokens
+    n_positions=max_length_decoder,
     n_embd=decoder_hidden_size,
     n_layer=num_decoder_layers,
     n_head=num_attention_heads,
-    pad_token_id=tokenizer_target.pad_token_id,
-    bos_token_id=tokenizer_target.bos_token_id,
-    eos_token_id=tokenizer_target.eos_token_id,
-    add_cross_attention=True,  # Important for Seq2Seq models (Can't find this on HF docs)
-    embd_pdrop=dropout,  # Dropout on embeddings 
-    attn_pdrop=dropout,  # Dropout on attention probabilities 
-    resid_pdrop=dropout  # Dropout on residual connections 
+    # Special tokens configuration
+    pad_token_id=vcb.get("<pad>"),
+    bos_token_id=vcb.get("<s>"),
+    eos_token_id=vcb.get("</s>"),
+    decoder_start_token_id=vcb.get("<s>"),  # Add this here
+    # Other configurations
+    add_cross_attention=True,
+    embd_pdrop=dropout,
+    attn_pdrop=dropout,
+    resid_pdrop=dropout
 )
+
 print(decoder_config)
-decoder = GPT2LMHeadModel(decoder_config)
+# decoder = GPT2LMHeadModel(decoder_config)
+
+
+# Load the model
+try:
+    decoder = GPT2LMHeadModel.from_pretrained(model_path)  #config=decoder_config
+    print("Model loaded successfully")
+except Exception as e:
+    raise Exception(f"Error loading model: {str(e)}")
 
 ########################################################
 #decoder.resize_token_embeddings(len(tokenizer_target))
 ########################################################
+
 
 # Linear layer to project feature vectors to the expected input shape
 class FeatureProjection(torch.nn.Module):
@@ -345,14 +396,19 @@ model = EncoderDecoderModel(encoder=encoder, decoder=decoder)
 ########################################################################
 
 # Tie weights (optional)
-model.config.decoder_start_token_id = tokenizer_target.bos_token_id
-model.config.eos_token_id = tokenizer_target.eos_token_id
-model.config.pad_token_id = tokenizer_target.pad_token_id
-model.config.vocab_size = decoder_config.vocab_size
-model.config.max_length = max_length_decoder
+model.config.decoder_start_token_id = vcb.get("<s>")
+model.config.bos_token_id = vcb.get("<s>")
+model.config.eos_token_id = vcb.get("</s>")
+model.config.pad_token_id = vcb.get("<pad>")
+# model.config.vocab_size = decoder_config.vocab_size
+# model.config.max_length = max_length_decoder
+# model.config.min_length = 1
+# model.config.no_repeat_ngram_size = 3
+# model.config.length_penalty = 0.6
+# model.config.early_stopping = True
 
-# After creating your model and adding special tokens
-
+print("Model decoder_start_token_id:", model.config.decoder_start_token_id)
+print("Decoder config decoder_start_token_id:", model.decoder.config.decoder_start_token_id)
 
 # Load the best model checkpoint if it exists
 # Create directory if it does not exist
@@ -479,6 +535,76 @@ else:
     best_val_loss_isign = float('inf')
     best_val_loss = float('inf')
 
+
+def batch_decode_custom(tokenizer, ids_tensor, skip_special_tokens=True):
+    decoded = []
+    # Define special tokens once
+    special_tokens = {
+        "<s>": 0,
+        "</s>": 2,
+        "<pad>": 1,
+        "<unk>": 3,
+        "<mask>": 4,
+        "<PERSON>": 5,
+        "<UNKNOWN>": 6
+    }
+    
+    
+    for ids in ids_tensor:
+        # Convert tensor to list and filter -100s
+        if isinstance(ids, torch.Tensor):
+            ids = [id for id in ids.cpu().tolist() if id != -100]
+        else:
+            ids = [id for id in ids if id != -100]
+        
+        if skip_special_tokens:
+            # Filter out special token IDs before decoding
+            ids = [id for id in ids if id not in special_tokens.values()]
+            
+        # Decode sequence
+        decoded_text = tokenizer.decode(ids)
+        
+        # Additional cleanup if needed
+        if skip_special_tokens:
+            # Remove any remaining special token strings (just in case)
+            for token in special_tokens.keys():
+                decoded_text = decoded_text.replace(token, "")
+            
+            # Clean up extra spaces
+            decoded_text = " ".join(decoded_text.split())
+        
+        decoded.append(decoded_text.strip())
+    
+    return decoded
+
+
+def batch_decode_custom(tokenizer, ids_tensor, skip_special_tokens=True):
+    decoded = []
+    for ids in ids_tensor:
+        # Convert tensor to list
+        if isinstance(ids, torch.Tensor):
+            ids = ids.cpu().tolist()
+        
+        # Decode single sequence
+        decoded_text = tokenizer.decode(ids)
+        
+        
+        # Remove special tokens if requested
+        if skip_special_tokens:
+            # Remove all special tokens
+            special_tokens = [
+                "<s>", "</s>", "<pad>", "<unk>", 
+                "<mask>", "<PERSON>", "<UNKNOWN>"
+            ]
+            for token in special_tokens:
+                decoded_text = decoded_text.replace(token, "")
+            
+            # Clean up extra spaces
+            decoded_text = " ".join(decoded_text.split())
+            
+        decoded.append(decoded_text)
+    return decoded
+
 def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isign,
                best_val_B1_isign,best_val_loss_isign,counter, current_step,epoch_steps, save_model=False):
     model.eval()
@@ -521,17 +647,20 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
             # Process predictions and references
             generated_ids = torch.where(
                 generated_ids == -100,
-                torch.tensor(tokenizer_target.pad_token_id).to(generated_ids.device),
+                torch.tensor(tokenizer_target.get_vocab().get("<pad>")).to(generated_ids.device),
                 generated_ids
             )
             labels = torch.where(
                 labels == -100,
-                torch.tensor(tokenizer_target.pad_token_id).to(labels.device),
+                torch.tensor(tokenizer_target.get_vocab().get("<pad>")).to(labels.device),
                 labels
             )
             
-            preds = tokenizer_target.batch_decode(generated_ids, skip_special_tokens=True)
-            refs = tokenizer_target.batch_decode(labels, skip_special_tokens=True)
+            # preds = tokenizer_target.batch_decode(generated_ids, skip_special_tokens=True)
+            # refs = tokenizer_target.batch_decode(labels, skip_special_tokens=True)
+            
+            preds = batch_decode_custom(tokenizer_target, generated_ids, skip_special_tokens=True)
+            refs = batch_decode_custom(tokenizer_target, labels, skip_special_tokens=True)
             
             for ref in refs:
                 sacre_refs.append(str(ref))
@@ -552,16 +681,16 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
     bleu_sacre1, bleu_sacre2, bleu_sacre3, bleu_sacre4 =  bleu_sacre.precisions[0], bleu_sacre.precisions[1], bleu_sacre.precisions[2], bleu_sacre.precisions[3]
     # Save best model
     # Log metrics
-    if log_what == "CISLR":
+    if log_what == "WASL":
 
-        print(f'Sacre Bleu1_CISLR :{bleu_sacre1}')
-        print(f'Sacre Bleu2_CISLR :{bleu_sacre2}')
-        print(f'Sacre Bleu3_CISLR :{bleu_sacre3}')
-        print(f'Sacre Bleu4_CISLR :{bleu_sacre4}')
+        print(f'Sacre Bleu1_WASL :{bleu_sacre1}')
+        print(f'Sacre Bleu2_WASL :{bleu_sacre2}')
+        print(f'Sacre Bleu3_WASL :{bleu_sacre3}')
+        print(f'Sacre Bleu4_WASL :{bleu_sacre4}')
         if bleu4 > best_val_B4 or (bleu4 == best_val_B4 and avg_eval_loss < best_val_loss):
             best_val_B4 = bleu4
             best_val_loss = avg_eval_loss
-            print('Saving CISLR best model checkpoint...')
+            print('Saving WASL best model checkpoint...')
             save_checkpoint(
                 model, feature_projection, optimizer, scheduler,
                 epoch, best_val_B4, best_val_loss, best_checkpoint_path, 
@@ -588,16 +717,16 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
             'val/bleu3_sacre': bleu_sacre3,
             'val/bleu4_sacre': bleu_sacre4
         })
-    elif log_what == "ISIGN":
-        print(f'Sacre Bleu1_Isign :{bleu_sacre1}')
-        print(f'Sacre Bleu2_Isign :{bleu_sacre2}')
-        print(f'Sacre Bleu3_Isign :{bleu_sacre3}')
-        print(f'Sacre Bleu4_Isign :{bleu_sacre4}')
+    elif log_what == "HOW2SIGN":
+        print(f'Sacre Bleu1_HOW2SIGN :{bleu_sacre1}')
+        print(f'Sacre Bleu2_HOW2SIGN :{bleu_sacre2}')
+        print(f'Sacre Bleu3_HOW2SIGN :{bleu_sacre3}')
+        print(f'Sacre Bleu4_HOW2SIGN :{bleu_sacre4}')
         if counter >= 1:
             if bleu4 > best_val_B4_isign or (bleu4 == best_val_B4_isign and avg_eval_loss < best_val_loss_isign):
                 best_val_B4_isign = bleu4
                 best_val_loss_isign = avg_eval_loss
-                print('Saving IsignB4 best model checkpoint...')
+                print('Saving HOW2SIGN best model checkpoint...')
                 save_checkpoint(
                     model, feature_projection, optimizer, scheduler,
                     epoch, best_val_B4, best_val_loss, best_checkpoint_path_isignB4, 
@@ -613,7 +742,7 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
             if bleu1 > best_val_B1_isign or (bleu1 == best_val_B1_isign and avg_eval_loss < best_val_loss_isign):
                 best_val_B1_isign = bleu1
                 best_val_loss_isign = avg_eval_loss
-                print('Saving IsignB1 best model checkpoint...')
+                print('Saving HOW2SIGNB1 best model checkpoint...')
                 save_checkpoint(
                     model, feature_projection, optimizer, scheduler,
                     epoch, best_val_B4, best_val_loss, best_checkpoint_path_isignB1, 
@@ -627,17 +756,17 @@ def model_eval(eval_loader, log_what, best_val_B4,best_val_loss,best_val_B4_isig
                 df.to_csv(f'predictions_new/{project_name}_{sub_project_name}_predictions{log_what}B1.csv', index=False)
             
         wandb.log({
-            'val/eval_loss_isign': avg_eval_loss,
-            'val/bleu1_isign': bleu1 * 100,
-            'val/bleu2_isign': bleu2 * 100,
-            'val/bleu3_isign': bleu3 * 100,
-            'val/bleu4_isign': bleu4 * 100
+            'val/eval_loss_HOW2SIGN': avg_eval_loss,
+            'val/bleu1_HOW2SIGN': bleu1 * 100,
+            'val/bleu2_HOW2SIGN': bleu2 * 100,
+            'val/bleu3_HOW2SIGN': bleu3 * 100,
+            'val/bleu4_HOW2SIGN': bleu4 * 100
         })
         wandb.log({
-            'val/bleu1_sacre_isign': bleu_sacre1,
-            'val/bleu2_sacre_isign': bleu_sacre2,
-            'val/bleu3_sacre_isign': bleu_sacre3,
-            'val/bleu4_sacre_isign': bleu_sacre4
+            'val/bleu1_sacre_HOW2SIGN': bleu_sacre1,
+            'val/bleu2_sacre_HOW2SIGN': bleu_sacre2,
+            'val/bleu3_sacre_HOW2SIGN': bleu_sacre3,
+            'val/bleu4_sacre_HOW2SIGN': bleu_sacre4
         })
     
     # Clean up memory
@@ -723,10 +852,10 @@ for epoch in range(start_epoch, num_epochs):
         if epoch_steps % 2500 == 0:
             counter += 1
             best_val_B4, best_val_loss, best_val_B4_isign, best_val_B1_isign, best_val_loss_isign = model_eval(
-                eval_loader, "CISLR", best_val_B4, best_val_loss, best_val_B4_isign, 
+                eval_loader, "WASL", best_val_B4, best_val_loss, best_val_B4_isign, 
                 best_val_B1_isign, best_val_loss_isign, counter, epoch_steps, epoch_steps,save_model=True)
             best_val_B4, best_val_loss, best_val_B4_isign, best_val_B1_isign, best_val_loss_isign = model_eval(
-                eval2_loader, "ISIGN", best_val_B4,best_val_loss, best_val_B4_isign, 
+                eval2_loader, "HOW2SIGN", best_val_B4,best_val_loss, best_val_B4_isign, 
                 best_val_B1_isign, best_val_loss_isign,counter,  epoch_steps, epoch_steps, save_model=True)
         # if epoch_steps % 7500 == 0:
         #     # Save regular checkpoint
@@ -787,18 +916,18 @@ with torch.no_grad():
         
         generated_ids = torch.where(
             generated_ids == -100,
-            torch.tensor(tokenizer_target.pad_token_id).to(generated_ids.device),
+            torch.tensor(tokenizer_target.get_vocab().get("<pad>")).to(generated_ids.device),
             generated_ids
         )
         labels = torch.where(
             labels == -100,
-            torch.tensor(tokenizer_target.pad_token_id).to(labels.device),
+            torch.tensor(tokenizer_target.get_vocab().get("<pad>")).to(labels.device),
             labels
         )
         
-        preds = tokenizer_target.batch_decode(generated_ids, skip_special_tokens=True)
-        refs = tokenizer_target.batch_decode(labels, skip_special_tokens=True)
-        
+        preds = batch_decode_custom(tokenizer_target, generated_ids, skip_special_tokens=True)
+        refs = batch_decode_custom(tokenizer_target, labels, skip_special_tokens=True)
+            
         ref_tokens = [ref.strip().split() for ref in refs]
         pred_tokens = [pred.strip().split() for pred in preds]
         
